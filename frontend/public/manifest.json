@@ -1,0 +1,9 @@
+{
+  "short_name": "Blockchain Exam",
+  "name": "Blockchain Online Exam Authentication System",
+  "icons": [],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#3B82F6",
+  "background_color": "#ffffff"
+} 

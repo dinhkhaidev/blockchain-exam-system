@@ -1,0 +1,44 @@
+# Node.js
+node_modules/
+package-lock.json
+npm-debug.log
+yarn-error.log
+
+# Hardhat/Truffle/solidity
+artifacts/
+build/
+cache/
+deployed-addresses.json
+*.dbg.json
+*.json~
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backend
+backend/node_modules/
+backend/package-lock.json
+backend/data/
+
+# Contracts
+contracts/node_modules/
+contracts/package-lock.json
+contracts/artifacts/
+contracts/cache/
+contracts/deployed-addresses.json
+
+# Frontend
+frontend/node_modules/
+frontend/package-lock.json
+frontend/build/
+
+# Misc
+.env
+.env.* 

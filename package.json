@@ -1,0 +1,30 @@
+{
+  "name": "blockchain-exam-authentication",
+  "version": "1.0.0",
+  "description": "Hệ thống xác thực thi cử trực tuyến ứng dụng Blockchain và NFT",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd backend && npm run dev",
+    "client": "cd frontend && npm start",
+    "compile": "npx hardhat compile && node scripts/copy-abi.js",
+    "deploy": "npx hardhat run scripts/deploy.js --network localhost && node scripts/copy-abi.js",
+    "test": "cd contracts && npx hardhat test"
+  },
+  "keywords": [
+    "blockchain",
+    "nft",
+    "exam",
+    "authentication",
+    "ethereum"
+  ],
+  "author": "DNTU Student",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0",
+    "solc": "^0.8.14-fixed"
+  }
+}
