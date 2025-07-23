@@ -1,12 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWeb3 } from '../contexts/Web3Context';
 import { useNavigate } from 'react-router-dom';
 import { FaCrown, FaGraduationCap, FaUsers, FaShieldAlt, FaImages, FaEye, FaUserCheck, FaCertificate, FaClipboardCheck } from 'react-icons/fa';
 
 const RoleSelection = () => {
-  const { isConnected, account, connectWallet, setUserTypeManually } = useWeb3();
+  const { isConnected, account, connectWallet, setUserTypeManually, isOwner } = useWeb3();
   const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (isConnected && isOwner === false) {
+      setUserTypeManually('student');
+      navigate('/');
+    }
+    // Nếu là owner (isOwner === true), không tự động chuyển hướng, để user chọn vai trò
+  }, [isConnected, isOwner, setUserTypeManually, navigate]);
 
   const handleConnectWallet = async () => {
     try {
@@ -136,6 +144,7 @@ const RoleSelection = () => {
             <button
               onClick={() => handleRoleSelection('owner')}
               className="w-full bg-purple-600 text-white py-3 px-4 rounded-lg font-semibold hover:bg-purple-700 transition-colors duration-200 flex items-center justify-center"
+              disabled={!isOwner}
             >
               <FaCrown className="mr-2" />
               Chọn vai trò này
@@ -144,6 +153,7 @@ const RoleSelection = () => {
         </div>
 
         {/* Student Card */}
+        {isOwner && (
         <div className="bg-white rounded-lg shadow-lg overflow-hidden border-2 border-blue-200 hover:border-blue-300 transition-all duration-200">
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 p-6 text-white">
             <div className="flex items-center mb-4">
@@ -182,6 +192,7 @@ const RoleSelection = () => {
             </button>
           </div>
         </div>
+        )}
       </div>
 
       {/* Additional Info */}

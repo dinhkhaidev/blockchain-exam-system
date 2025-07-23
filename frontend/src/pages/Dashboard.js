@@ -14,13 +14,13 @@ const Dashboard = () => {
   // Check student info and status
   useEffect(() => {
     const checkStudentInfo = async () => {
-      if (isConnected && contracts.examRegistration && account) {
+      if (isConnected && contracts.examRegistration && account && studentInfo?.subject) {
         try {
-          const isReg = await contracts.examRegistration.isStudentRegistered(account);
+          const isReg = await contracts.examRegistration.isStudentRegistered(account, studentInfo.subject);
           setIsRegistered(isReg);
           
           if (isReg) {
-            const info = await contracts.examRegistration.getStudentInfo(account);
+            const info = await contracts.examRegistration.getStudentInfo(account, studentInfo.subject);
             setStudentInfo(info);
           }
         } catch (error) {
@@ -31,7 +31,7 @@ const Dashboard = () => {
     };
 
     checkStudentInfo();
-  }, [isConnected, contracts.examRegistration, account]);
+  }, [isConnected, contracts.examRegistration, account, studentInfo?.subject]);
 
   // Check whitelist status for students
   useEffect(() => {
@@ -237,8 +237,32 @@ const OwnerDashboard = () => {
 
 // Student Dashboard Component
 const StudentDashboard = ({ studentInfo, isRegistered, whitelistStatus }) => {
+  const [isCheater, setIsCheater] = useState(false);
+  const { contracts, account } = useWeb3();
+
+  useEffect(() => {
+    const checkCheater = async () => {
+      if (contracts && contracts.examRegistration && account) {
+        try {
+          const cheater = await contracts.examRegistration.isStudentCheater(account);
+          setIsCheater(cheater);
+        } catch (err) {
+          setIsCheater(false);
+        }
+      }
+    };
+    checkCheater();
+  }, [contracts, account]);
+
   return (
     <div className="space-y-6">
+      {/* Cảnh báo gian lận */}
+      {isCheater && (
+        <div className="bg-red-100 border border-red-400 text-red-800 rounded-lg p-4 text-center font-semibold text-lg">
+          <FaTimesCircle className="inline mr-2 text-2xl align-middle" />
+          Tài khoản của bạn đã bị đánh dấu <b>gian lận</b>! Bạn sẽ bị cấm thi và không thể nhận chứng nhận.
+        </div>
+      )}
       {/* Status Overview */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white rounded-lg shadow-lg p-6">
@@ -276,8 +300,11 @@ const StudentDashboard = ({ studentInfo, isRegistered, whitelistStatus }) => {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">Thi</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {studentInfo?.isVerified ? 'Có thể thi' : 'Chưa thể thi'}
+              <p className={`text-lg font-semibold ${isCheater ? 'text-red-600' : 'text-gray-900'}`}> 
+                {isCheater
+                  ? 'Bị cấm thi do gian lận'
+                  : (studentInfo?.isVerified ? 'Có thể thi' : 'Chưa thể thi')
+                }
               </p>
             </div>
           </div>

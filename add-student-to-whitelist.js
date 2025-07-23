@@ -1,74 +1,75 @@
-const { ethers } = require('ethers');
+const fs = require('fs');
+const path = require('path');
+const axios = require('axios');
+const FormData = require('form-data');
+    
+// Mock các hàm blockchain/IPFS (thay bằng code thực tế nếu có)
+const { mintNFT } = require('./backend/blockchain-utils');
+const { uploadToIPFS } = require('./backend/ipfs-utils');
 
-async function addStudentToWhitelist() {
+// Lấy tham số dòng lệnh
+const args = process.argv.slice(2);
+function getArg(flag) {
+  const idx = args.indexOf(flag);
+  if (idx !== -1 && idx + 1 < args.length) return args[idx + 1];
+  return null;
+}
+
+const studentId = getArg('--id');
+const studentAddress = getArg('--address');
+const imagePath = getArg('--img');
+
+if (!studentId || !studentAddress || !imagePath) {
+  console.error('❌ Thiếu tham số! Dùng: node add-student-to-whitelist.js --id <mã_sv> --address <ví> --img <file_ảnh>');
+  process.exit(1);
+}
+
+async function main() {
   try {
-    console.log('🔄 Adding student to whitelist...');
-    
-    // Load contract addresses and ABI
-    const contractAddresses = require('./frontend/src/contracts/contract-address.json');
-    const ExamRegistration = require('./frontend/src/contracts/ExamRegistration.json');
-    
-    console.log('📋 Contract addresses:', contractAddresses);
-    console.log('📋 ExamRegistration address:', contractAddresses.examRegistration);
-    
-    // Initialize provider and signer
-    const provider = new ethers.JsonRpcProvider('http://127.0.0.1:7545');
-    
-    // Get the first account as owner (deployer)
-    const accounts = await provider.listAccounts();
-    const ownerAccount = accounts[0];
-    console.log('👑 Owner account:', ownerAccount);
-    
-    // ethers v6: getSigner(0) hoặc getSigner(address) với address là string
-    const signer = await provider.getSigner(0); // Lấy signer đầu tiên
-    console.log('👤 Signer address:', await signer.getAddress());
-    
-    // Initialize contract with signer
-    const examRegistrationContract = new ethers.Contract(
-      contractAddresses.ExamRegistration, // Đúng key, chữ hoa đầu
-      ExamRegistration.abi,
-      signer
-    );
-    
-    console.log('✅ Contract initialized');
-    console.log('📋 Contract address:', examRegistrationContract.target);
-    
-    // Test student address (replace with actual student address)
-    const studentAddress = "0x8e4Cf11A8F982c0cFD54f3f1F6A0db91f0c1b30a"; // From error log
-    console.log('👤 Student address to whitelist:', studentAddress);
-    
-    // Check if student is already whitelisted
-    try {
-      const isWhitelisted = await examRegistrationContract.isStudentWhitelisted(studentAddress);
-      console.log('📋 Is student already whitelisted:', isWhitelisted);
-      
-      if (isWhitelisted) {
-        console.log('✅ Student is already whitelisted!');
-        return;
-      }
-    } catch (error) {
-      console.log('⚠️ Could not check whitelist status:', error.message);
+    console.log('🔄 Đang xử lý sinh viên:', studentId, studentAddress, imagePath);
+    // 1. Đọc file ảnh
+    if (!fs.existsSync(imagePath)) {
+      throw new Error('Không tìm thấy file ảnh: ' + imagePath);
     }
+    const imageBuffer = fs.readFileSync(imagePath);
+
+    // 2. Gửi ảnh lên AI service để lấy embedding
+    const form = new FormData();
+    form.append('image', imageBuffer, path.basename(imagePath));
+    const aiRes = await axios.post('http://localhost:5001/extract-embedding', form, {
+      headers: form.getHeaders(),
+    });
+    const embedding = aiRes.data.embedding;
+    console.log('✅ Lấy embedding thành công');
     
-    // Add student to whitelist
-    console.log('🔄 Adding student to whitelist...');
-    const tx = await examRegistrationContract.addStudentToWhitelist(studentAddress);
-    console.log('📋 Transaction sent:', tx.hash);
-    
-    console.log('🔄 Waiting for transaction confirmation...');
-    const receipt = await tx.wait();
-    console.log('✅ Transaction confirmed! Block:', receipt.blockNumber);
-    
-    // Verify student is now whitelisted
-    const isWhitelisted = await examRegistrationContract.isStudentWhitelisted(studentAddress);
-    console.log('✅ Student is now whitelisted:', isWhitelisted);
-    
-    console.log('\n✅ Student successfully added to whitelist!');
-    
-  } catch (error) {
-    console.error('❌ Error adding student to whitelist:', error);
-    console.error('❌ Error details:', error.message);
+    // 3. Tạo metadata NFT
+    const metadata = {
+      name: 'Student ID NFT',
+      description: 'Student identity NFT for exam authentication',
+      studentId,
+      faceEmbedding: embedding
+    };
+    fs.writeFileSync('metadata.json', JSON.stringify(metadata));
+    console.log('✅ Tạo metadata NFT thành công');
+
+    // 4. Upload metadata lên IPFS
+    const metadataURI = await uploadToIPFS('metadata.json');
+    console.log('✅ Upload metadata lên IPFS thành công:', metadataURI);
+
+    // 5. Mint NFT cho sinh viên
+    const tx = await mintNFT(studentAddress, metadataURI);
+    console.log('✅ Mint NFT thành công! TxHash:', tx.hash);
+
+    // 6. (Tùy chọn) Add vào whitelist (nếu cần, gọi smart contract)
+    // ...
+
+    console.log('🎉 Đã hoàn tất thêm sinh viên:', studentId, studentAddress);
+    console.log('MetadataURI:', metadataURI);
+    console.log('TxHash:', tx.hash);
+  } catch (err) {
+    console.error('❌ Lỗi:', err.message);
+    process.exit(1);
   }
 }
 
-addStudentToWhitelist(); 
+main(); 

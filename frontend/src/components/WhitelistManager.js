@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useWeb3 } from '../contexts/Web3Context';
 import { toast } from 'react-toastify';
-import { FaPlus, FaTrash, FaUsers, FaUpload, FaSpinner } from 'react-icons/fa';
+import { FaPlus, FaTrash, FaUsers, FaUpload, FaSpinner, FaWallet, FaCheckCircle } from 'react-icons/fa';
 import { isAddress } from "ethers";
+import axios from 'axios';
 
 const WhitelistManager = () => {
   const { 
@@ -17,6 +18,14 @@ const WhitelistManager = () => {
   const [whitelistedStudents, setWhitelistedStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isOwnerStatus, setIsOwnerStatus] = useState(false);
+  const [studentId, setStudentId] = useState('');
+  const [studentAddress, setStudentAddress] = useState('');
+  const [imageFile, setImageFile] = useState(null);
+  const [mintResult, setMintResult] = useState(null);
+  const videoRef = React.useRef();
+  const canvasRef = React.useRef();
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   // Check if current user is owner
   useEffect(() => {
@@ -217,35 +226,154 @@ const WhitelistManager = () => {
       {/* Add Single Student */}
       <div className="bg-white rounded-lg shadow-lg p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Thêm sinh viên đơn lẻ
+          Thêm sinh viên (mint NFT + whitelist)
         </h3>
-        <form onSubmit={handleAddSingleStudent} className="space-y-4">
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          if (!studentId.trim() || !studentAddress.trim() || !imageFile) {
+            toast.error('Vui lòng nhập đủ mã SV, địa chỉ ví và chọn/chụp ảnh!');
+            return;
+          }
+          setIsLoading(true);
+          setMintResult(null);
+          const formData = new FormData();
+          formData.append('studentId', studentId.trim());
+          formData.append('walletAddress', studentAddress.trim());
+          formData.append('face', imageFile);
+          try {
+            // 1. Mint NFT qua backend
+            const res = await axios.post('/api/admin/add-student', formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            setMintResult(res.data);
+            if (res.data.success) {
+              toast.success('✅ Mint NFT thành công! Đang thêm vào whitelist...');
+              // 2. Gọi addStudentToWhitelist qua MetaMask (frontend)
+              if (contracts && contracts.examRegistrationWrite) {
+                const contract = contracts.examRegistrationWrite;
+                const tx = await contract.addStudentToWhitelist(studentAddress.trim());
+                toast.info('Vui lòng xác nhận giao dịch trên MetaMask để whitelist!');
+                await tx.wait();
+                toast.success('✅ Đã thêm vào whitelist thành công!');
+                await loadWhitelistedStudents();
+              } else {
+                toast.error('Không tìm thấy contract write để whitelist!');
+              }
+            } else {
+              toast.error('❌ Mint NFT thất bại!');
+            }
+            setStudentId(''); setStudentAddress(''); setImageFile(null);
+          } catch (err) {
+            setMintResult({ success: false, error: err.response?.data?.error || err.message });
+            toast.error('❌ Mint NFT thất bại!');
+          }
+          setIsLoading(false);
+        }} className="space-y-4">
           <div>
-            <label htmlFor="singleAddress" className="block text-sm font-medium text-gray-700 mb-2">
-              Địa chỉ ví sinh viên
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Mã sinh viên</label>
+            <input type="text" value={studentId} onChange={e => setStudentId(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md" required />
+          </div>
+          <div className="relative mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Địa chỉ ví sinh viên</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
+                <FaWallet />
+              </span>
             <input
               type="text"
-              id="singleAddress"
-              value={singleAddress}
-              onChange={(e) => setSingleAddress(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={studentAddress}
+                onChange={e => {
+                  setStudentAddress(e.target.value);
+                  if (e.target.value.length > 1) {
+                    const filtered = whitelistedStudents.filter(addr => addr.toLowerCase().includes(e.target.value.toLowerCase()));
+                    setAddressSuggestions(filtered.slice(0, 5));
+                    setShowSuggestions(true);
+                  } else {
+                    setShowSuggestions(false);
+                  }
+                }}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                onFocus={() => {
+                  if (studentAddress.length > 1 && addressSuggestions.length > 0) setShowSuggestions(true);
+                }}
+                className="w-full pl-10 pr-3 py-2 border border-blue-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition-all duration-150 font-mono text-base"
+                required
               placeholder="0x..."
-              required
-            />
+                autoComplete="off"
+                style={{ background: '#f9fafb' }}
+              />
+              {showSuggestions && addressSuggestions.length > 0 && (
+                <ul className="absolute z-30 left-0 right-0 bg-white border-2 border-blue-500 rounded-lg shadow-2xl max-h-56 overflow-y-auto mt-1 animate-fade-in">
+                  {addressSuggestions.map(addr => (
+                    <li
+                      key={addr}
+                      className="px-3 py-2 flex items-center gap-2 cursor-pointer hover:bg-blue-200 text-base font-mono transition-colors duration-100 border-b last:border-b-0 border-blue-100"
+                      onMouseDown={() => {
+                        setStudentAddress(addr);
+                        setShowSuggestions(false);
+                      }}
+                      style={{ minHeight: 36 }}
+                    >
+                      <FaCheckCircle className="text-blue-400" />
+                      <span className="truncate">{addr}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Ảnh khuôn mặt</label>
+            <div className="flex flex-col sm:flex-row items-center gap-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={e => setImageFile(e.target.files[0])}
+                className="block w-full sm:w-auto text-sm text-gray-700 border border-gray-300 rounded-lg cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white px-2 py-1"
+                style={{ maxWidth: 220 }}
+              />
+              {imageFile && (
+                <span className="text-xs text-green-700 font-mono truncate max-w-xs" title={imageFile.name}>
+                  {imageFile.name}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={async () => {
+                  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                  videoRef.current.srcObject = stream;
+                }}
+                className="bg-blue-100 text-blue-700 px-3 py-1 rounded-md border border-blue-300 hover:bg-blue-200 transition-all"
+              >
+                Bật camera
+              </button>
           <button
-            type="submit"
-            disabled={isLoading}
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center"
-          >
-            {isLoading ? (
-              <FaSpinner className="animate-spin mr-2" />
-            ) : (
-              <FaPlus className="mr-2" />
-            )}
-            Thêm vào whitelist
+                type="button"
+                onClick={() => {
+                  const ctx = canvasRef.current.getContext('2d');
+                  ctx.drawImage(videoRef.current, 0, 0, 160, 120);
+                  canvasRef.current.toBlob(blob => {
+                    setImageFile(new File([blob], 'face.jpg', { type: 'image/jpeg' }));
+                  }, 'image/jpeg');
+                }}
+                className="bg-green-100 text-green-700 px-3 py-1 rounded-md border border-green-300 hover:bg-green-200 transition-all"
+              >
+                Chụp ảnh
+              </button>
+              <video ref={videoRef} width={80} height={60} autoPlay className="rounded border border-gray-300 ml-2" style={{ display: 'block' }} />
+              <canvas ref={canvasRef} width={160} height={120} style={{ display: 'none' }} />
+            </div>
+          </div>
+          <button type="submit" disabled={isLoading} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center">
+            {isLoading ? (<FaSpinner className="animate-spin mr-2" />) : (<FaPlus className="mr-2" />)}
+            Thêm sinh viên & Mint NFT
           </button>
+          {mintResult && (
+            <div style={{ marginTop: 8 }}>
+              {mintResult.success && <span style={{ color: 'green' }}>✅ Mint NFT thành công! TxHash: {mintResult.txHash} MetadataURI: {mintResult.metadataURI}</span>}
+              {!mintResult.success && <span style={{ color: 'red' }}>Lỗi: {mintResult.error}</span>}
+            </div>
+          )}
         </form>
       </div>
 

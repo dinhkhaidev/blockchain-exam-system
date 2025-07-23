@@ -24,6 +24,7 @@
     "concurrently": "^8.2.2"
   },
   "dependencies": {
+    "dotenv": "^17.2.0",
     "ethers": "^6.15.0",
     "solc": "^0.8.14-fixed"
   }

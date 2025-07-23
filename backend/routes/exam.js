@@ -279,9 +279,6 @@ router.post('/cheat-report', async (req, res) => {
   try {
     console.log('--- [CheatReport] Incoming request ---');
     console.log('Body:', req.body);
-    console.log('RPC_URL:', rpcUrl);
-    console.log('EXAM_REGISTRATION_ADDRESS:', contractAddress);
-    console.log('PRIVATE_KEY:', privateKey ? '[OK]' : '[MISSING]');
     const { studentWallet, reason, timestamp } = req.body;
     if (!studentWallet || !reason) {
       console.log('[CheatReport] Missing studentWallet or reason');
@@ -291,12 +288,18 @@ router.post('/cheat-report', async (req, res) => {
     const provider = new ethers.JsonRpcProvider(rpcUrl);
     const wallet = new ethers.Wallet(privateKey, provider);
     const contract = new ethers.Contract(contractAddress, examRegistrationAbi, wallet);
+    // Kiểm tra đã bị đánh dấu gian lận chưa
+    const isCheater = await contract.isStudentCheater(studentWallet);
+    if (isCheater) {
+      console.log(`[CheatReport] Student ${studentWallet} đã bị đánh dấu gian lận trước đó.`);
+      return res.json({ success: true, alreadyCheater: true, message: 'Student already marked as cheater' });
+    }
     // Gọi markCheating
     console.log(`[CheatReport] Calling markCheating for ${studentWallet}, reason: ${reason}`);
     const tx = await contract.markCheating(studentWallet, reason);
     await tx.wait();
     console.log(`[CheatReport] Marked cheater: ${studentWallet}, reason: ${reason}, tx: ${tx.hash}`);
-    res.json({ success: true, message: 'Cheater marked on-chain', txHash: tx.hash });
+    res.json({ success: true, marked: true, txHash: tx.hash });
   } catch (err) {
     console.error('[CheatReport] Error:', err);
     res.status(500).json({ success: false, message: 'Failed to mark cheater', error: err.message });

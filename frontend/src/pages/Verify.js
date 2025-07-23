@@ -3,17 +3,64 @@ import { useWeb3 } from '../contexts/Web3Context';
 import { toast } from 'react-toastify';
 import { FaCamera, FaShieldAlt, FaUser, FaCheckCircle, FaTimesCircle, FaSpinner } from 'react-icons/fa';
 import { formatBlockchainTimestamp } from '../utils/bigIntUtils';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+const subjects = [
+  'Lập trình Web',
+  'Cơ sở dữ liệu',
+  'Lập trình hướng đối tượng',
+  'Mạng máy tính',
+  'Hệ điều hành',
+  'Cấu trúc dữ liệu',
+  'Toán rời rạc',
+  'Xác suất thống kê'
+];
+
+// Custom hook: lấy danh sách các môn đã có NFT
+function useOwnedSubjects(account, contracts, isConnected) {
+  const [ownedSubjects, setOwnedSubjects] = useState([]);
+  useEffect(() => {
+    let ignore = false;
+    const fetchOwnedSubjects = async () => {
+      if (isConnected && contracts.examCertificateNFT && account) {
+        try {
+          const total = await contracts.examCertificateNFT.getTotalCertificates();
+          const subjectsSet = new Set();
+          for (let i = 1; i <= Number(total); i++) {
+            try {
+              const info = await contracts.examCertificateNFT.getExamInfo(i);
+              const owner = await contracts.examCertificateNFT.ownerOf(i);
+              if (owner.toLowerCase() === account.toLowerCase()) {
+                subjectsSet.add(info.subject);
+              }
+            } catch (err) {}
+          }
+          if (!ignore) setOwnedSubjects(Array.from(subjectsSet));
+        } catch (err) {
+          if (!ignore) setOwnedSubjects([]);
+        }
+      } else if (!ignore) setOwnedSubjects([]);
+    };
+    fetchOwnedSubjects();
+    return () => { ignore = true; };
+  }, [isConnected, contracts.examCertificateNFT, account]);
+  return ownedSubjects;
+}
 
 const Verify = () => {
   const { isConnected, account, contracts, examRegistrationWrite } = useWeb3();
   const [isLoading, setIsLoading] = useState(false);
   const [studentInfo, setStudentInfo] = useState(null);
+  const [subjectToVerify, setSubjectToVerify] = useState(null);
   const [isVerified, setIsVerified] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
   const [ipAddress, setIpAddress] = useState('');
   const [imageHash, setImageHash] = useState('');
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const navigate = useNavigate();
+  const ownedSubjects = useOwnedSubjects(account, contracts, isConnected);
 
   // Get IP address
   useEffect(() => {
@@ -23,32 +70,57 @@ const Verify = () => {
         const data = await response.json();
         setIpAddress(data.ip);
       } catch (error) {
-        console.error('Error getting IP address:', error);
         setIpAddress('Unknown');
       }
     };
     getIpAddress();
   }, []);
 
-  // Check student info and verification status
+  // Check which subject needs verify
   useEffect(() => {
-    const checkStudentInfo = async () => {
-      if (isConnected && contracts.examRegistration && account) {
-        try {
-          const isReg = await contracts.examRegistration.isStudentRegistered(account);
-          if (isReg) {
-            const info = await contracts.examRegistration.getStudentInfo(account);
-            setStudentInfo(info);
-            setIsVerified(info.isVerified);
-          }
-        } catch (error) {
-          console.error('Error checking student info:', error);
-        }
+    const checkSubjectToVerify = async () => {
+      if (!isConnected || !contracts.examRegistration || !account) {
+        setSubjectToVerify(null);
+        setStudentInfo(null);
+        setIsVerified(false);
+        return;
       }
+      // Ưu tiên lấy subject đang thao tác từ localStorage
+      const currentSubject = localStorage.getItem('currentExamSubject');
+      if (currentSubject) {
+        try {
+          const info = await contracts.examRegistration.getStudentInfo(account, currentSubject);
+          if (info && info.isRegistered && !info.isVerified && !ownedSubjects.includes(currentSubject)) {
+            setSubjectToVerify(currentSubject);
+            setStudentInfo(info);
+            setIsVerified(false);
+            return;
+          }
+          if (info && info.isRegistered && info.isVerified && !ownedSubjects.includes(currentSubject)) {
+            // Nếu đã xác minh rồi, chuyển sang exam luôn
+            navigate('/exam');
+            return;
+          }
+        } catch (err) {}
+      }
+      for (const subject of subjects) {
+        try {
+          const info = await contracts.examRegistration.getStudentInfo(account, subject);
+          if (info && info.isRegistered && !info.isVerified && !ownedSubjects.includes(subject)) {
+            setSubjectToVerify(subject);
+            setStudentInfo(info);
+            setIsVerified(false);
+            return;
+        }
+        } catch (err) {}
+      }
+      setSubjectToVerify(null);
+      setStudentInfo(null);
+      setIsVerified(false);
+      navigate('/register');
     };
-
-    checkStudentInfo();
-  }, [isConnected, contracts.examRegistration, account]);
+    checkSubjectToVerify();
+  }, [isConnected, contracts.examRegistration, account, ownedSubjects, navigate]);
 
   // Start camera
   const startCamera = async () => {
@@ -108,8 +180,17 @@ const Verify = () => {
       return;
     }
 
+    console.log('[DEBUG] account:', account);
+    console.log('[DEBUG] studentInfo:', studentInfo);
+    console.log('[DEBUG] isRegistered:', studentInfo?.isRegistered);
+
     if (!studentInfo) {
       toast.error('Bạn chưa đăng ký thi! Vui lòng đăng ký trước.');
+      return;
+    }
+
+    if (!studentInfo.isRegistered) {
+      toast.error('Bạn chưa đăng ký thi trên blockchain!');
       return;
     }
 
@@ -126,59 +207,41 @@ const Verify = () => {
     setIsLoading(true);
 
     try {
-      console.log('🔄 Starting identity verification...');
-      console.log('📋 Using contract:', examRegistrationWrite ? 'examRegistrationWrite' : 'contracts.examRegistration');
-      console.log('📋 IP Address:', ipAddress);
-      console.log('📋 Image Hash:', imageHash);
-      
-      // Sử dụng contract write cho transaction
+      // 1. Gửi ảnh và ví lên backend để xác minh AI
+      const formData = new FormData();
+      formData.append('walletAddress', account);
+      const blob = await (await fetch(capturedImage)).blob();
+      formData.append('face', blob, 'face.jpg');
+      console.log('[DEBUG] Gửi ảnh xác minh lên backend:', account, blob);
+      const res = await axios.post('/api/student/verify', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('[DEBUG] Kết quả backend:', res.data);
+
+      if (res.data.verified) {
+        // 2. Nếu match, gọi contract verifyIdentity bằng MetaMask (ví sinh viên)
       const contractToUse = examRegistrationWrite || contracts.examRegistration;
-      
-      if (!contractToUse) {
-        throw new Error('Contract chưa được khởi tạo');
-      }
-      
-      console.log('📋 Contract address:', contractToUse.target);
-      console.log('📋 Contract runner:', contractToUse.runner);
-      
-      toast.info('Đang xử lý xác minh danh tính...');
-      
-      // Call smart contract to verify identity
-      const tx = await contractToUse.verifyIdentity(
-        ipAddress,
-        imageHash
-      );
-      
-      console.log('📋 Transaction hash:', tx.hash);
-      toast.info('Đang chờ xác nhận giao dịch...');
-      
-      const receipt = await tx.wait();
-      console.log('✅ Verification successful! Block:', receipt.blockNumber);
-      
-      // Update verification status
-      setIsVerified(true);
-      
-      // Refresh student info
-      const updatedInfo = await contracts.examRegistration.getStudentInfo(account);
-      setStudentInfo(updatedInfo);
-      
-      toast.success('Xác minh danh tính thành công!');
-      
-    } catch (error) {
-      console.error('❌ Error during verification:', error);
-      console.error('❌ Error code:', error.code);
-      console.error('❌ Error message:', error.message);
-      
-      if (error.code === 4001) {
-        toast.error('Giao dịch bị hủy bởi người dùng');
-      } else if (error.code === 'UNSUPPORTED_OPERATION') {
-        toast.error('Lỗi kết nối MetaMask. Vui lòng kiểm tra kết nối và thử lại.');
-      } else if (error.message.includes('Already verified')) {
-        toast.error('Bạn đã được xác minh rồi!');
+        if (!contractToUse) throw new Error('Contract chưa được khởi tạo');
+        const ip = ipAddress || 'Unknown';
+        const imageData = await blob.arrayBuffer();
+        const hashBuffer = await window.crypto.subtle.digest('SHA-256', imageData);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        console.log('[DEBUG] Gọi contract verifyIdentity với:', ip, hashHex);
+        const tx = await contractToUse.verifyIdentity(subjectToVerify, ip, hashHex);
+        console.log('[DEBUG] Transaction:', tx);
+        await tx.wait();
         setIsVerified(true);
+        toast.success('Xác minh danh tính thành công! Đang chuyển sang trang thi...');
+        // Giữ lại currentExamSubject cho Exam.js
+        setTimeout(() => navigate('/exam'), 2000);
       } else {
-        toast.error('Lỗi xác minh danh tính: ' + error.message);
+        console.log('[DEBUG] Xác minh thất bại:', res.data.reason);
+        toast.error('Xác minh thất bại: ' + (res.data.reason || 'Không đúng khuôn mặt hoặc không đủ quyền!'));
       }
+    } catch (error) {
+      console.error('[DEBUG] Lỗi xác minh:', error);
+      toast.error('Lỗi xác minh danh tính: ' + (error.response?.data?.error || error.message));
     } finally {
       setIsLoading(false);
     }
@@ -220,6 +283,30 @@ const Verify = () => {
             className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200"
           >
             Đăng ký thi ngay
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (studentInfo && ownedSubjects.includes(studentInfo.subject)) {
+    return (
+      <div className="max-w-4xl mx-auto">
+        <div className="bg-white rounded-lg shadow-lg p-8 text-center">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <FaCheckCircle className="text-green-600 text-2xl" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Bạn đã hoàn thành và nhận NFT cho môn học này!
+          </h2>
+          <p className="text-gray-600 mb-6">
+            Vui lòng đăng ký môn học mới để xác minh tiếp. Nếu bạn muốn xác minh cho môn khác, hãy đăng ký môn mới trước.
+          </p>
+          <a
+            href="/register"
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200"
+          >
+            Đăng ký môn mới
           </a>
         </div>
       </div>

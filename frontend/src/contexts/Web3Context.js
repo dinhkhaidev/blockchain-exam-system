@@ -49,7 +49,7 @@ export const Web3Provider = ({ children }) => {
           await initializeContracts(account);
           
           // Check if user is owner
-          await checkOwnerStatus(account);
+          // await checkOwnerStatus(account); // Đã có useEffect tự động
           
           return account;
         }
@@ -511,6 +511,7 @@ export const Web3Provider = ({ children }) => {
             localStorage.setItem('walletConnected', 'true');
             
             await initializeContracts(account);
+            // XÓA: await checkOwnerStatus(account);
           }
         }
       } catch (error) {
@@ -534,6 +535,7 @@ export const Web3Provider = ({ children }) => {
           localStorage.setItem('walletConnected', 'true');
           
           await initializeContracts(account);
+          // XÓA: await checkOwnerStatus(account);
         } else {
           disconnectWallet();
         }
@@ -546,15 +548,22 @@ export const Web3Provider = ({ children }) => {
     }
   }, []);
 
-  // Check owner status when contracts change
+  // Khi account thay đổi, reset userType và re-check owner
+  useEffect(() => {
+    if (!account) {
+      setUserType(null);
+      setIsOwner(false);
+      setOwnerAddress(null);
+      return;
+    }
+    setUserType(null); // Reset userType để RoleSelection render lại đúng
+    // XÓA: checkOwnerStatus(account); // Không gọi ở đây nữa
+  }, [account]);
+
+  // Chỉ check owner khi contracts.examRegistration đã sẵn sàng
   useEffect(() => {
     if (contracts.examRegistration && account) {
-      // Add a small delay to ensure contracts are fully ready
-      const timer = setTimeout(() => {
         checkOwnerStatus(account);
-      }, 1000); // Increased delay
-      
-      return () => clearTimeout(timer);
     }
   }, [contracts.examRegistration, account]);
 

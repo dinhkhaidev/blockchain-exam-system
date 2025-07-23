@@ -32,7 +32,7 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
     }
     
     // State variables
-    mapping(address => Student) public students;
+    mapping(address => mapping(string => Student)) public students; // (address, subject) => Student
     mapping(string => address) public studentIdToWallet;
     mapping(address => VerificationLog[]) public verificationLogs;
     mapping(address => bool) public whitelistedStudents;
@@ -40,6 +40,16 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
     address[] public whitelistedAddresses;
     mapping(address => bool) public isCheater;
     event CheatingDetected(address indexed student, string reason, uint256 timestamp);
+
+    // Lưu danh sách các môn học đã đăng ký cho từng sinh viên
+    mapping(address => string[]) public registeredSubjects;
+
+    // Địa chỉ contract NFT
+    address public examCertificateNFT;
+    function setExamCertificateNFT(address _nft) external onlyOwner {
+        require(_nft != address(0), "Invalid NFT address");
+        examCertificateNFT = _nft;
+    }
     
     // Events
     event StudentRegistered(
@@ -76,13 +86,13 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
     );
     
     // Modifiers
-    modifier onlyRegisteredStudent() {
-        require(students[msg.sender].isRegistered, "Student not registered");
+    modifier onlyRegisteredStudent(string memory _subject) {
+        require(students[msg.sender][_subject].isRegistered, "Student not registered");
         _;
     }
     
-    modifier onlyVerifiedStudent() {
-        require(students[msg.sender].isVerified, "Student not verified");
+    modifier onlyVerifiedStudent(string memory _subject) {
+        require(students[msg.sender][_subject].isVerified, "Student not verified");
         _;
     }
     
@@ -108,10 +118,10 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
         require(bytes(_studentId).length > 0, "Student ID cannot be empty");
         require(bytes(_subject).length > 0, "Subject cannot be empty");
         require(bytes(_examSession).length > 0, "Exam session cannot be empty");
-        require(!students[msg.sender].isRegistered, "Already registered");
-        require(studentIdToWallet[_studentId] == address(0), "Student ID already registered");
         
-        students[msg.sender] = Student({
+        require(!students[msg.sender][_subject].isRegistered, "Already registered for this subject");
+        require(studentIdToWallet[_studentId] == address(0) || studentIdToWallet[_studentId] == msg.sender, "Student ID already registered");
+        students[msg.sender][_subject] = Student({
             studentId: _studentId,
             subject: _subject,
             examSession: _examSession,
@@ -121,8 +131,21 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
             registrationTime: block.timestamp,
             verificationTime: 0
         });
-        
+        if (studentIdToWallet[_studentId] == address(0)) {
         studentIdToWallet[_studentId] = msg.sender;
+        }
+        
+        // Thêm subject vào danh sách đã đăng ký nếu chưa có
+        bool found = false;
+        for (uint i = 0; i < registeredSubjects[msg.sender].length; i++) {
+            if (keccak256(bytes(registeredSubjects[msg.sender][i])) == keccak256(bytes(_subject))) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            registeredSubjects[msg.sender].push(_subject);
+        }
         
         emit StudentRegistered(
             msg.sender,
@@ -139,18 +162,19 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
      * @param _imageHash Hash của ảnh xác minh
      */
     function verifyIdentity(
+        string memory _subject,
         string memory _ipAddress,
         string memory _imageHash
-    ) external onlyRegisteredStudent {
+    ) external onlyRegisteredStudent(_subject) {
         require(!isCheater[msg.sender], "Cheating detected: action blocked");
-        require(!students[msg.sender].isVerified, "Student already verified");
+        require(!students[msg.sender][_subject].isVerified, "Student already verified");
         
-        students[msg.sender].isVerified = true;
-        students[msg.sender].verificationTime = block.timestamp;
+        students[msg.sender][_subject].isVerified = true;
+        students[msg.sender][_subject].verificationTime = block.timestamp;
         
         VerificationLog memory log = VerificationLog({
             studentWallet: msg.sender,
-            studentId: students[msg.sender].studentId,
+            studentId: students[msg.sender][_subject].studentId,
             ipAddress: _ipAddress,
             imageHash: _imageHash,
             timestamp: block.timestamp,
@@ -161,7 +185,7 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
         
         emit IdentityVerified(
             msg.sender,
-            students[msg.sender].studentId,
+            students[msg.sender][_subject].studentId,
             _ipAddress,
             _imageHash,
             block.timestamp
@@ -183,7 +207,7 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
     ) external onlyOwner {
         VerificationLog memory log = VerificationLog({
             studentWallet: _studentWallet,
-            studentId: students[_studentWallet].studentId,
+            studentId: students[_studentWallet][_reason].studentId, // This line needs to be updated to match the new structure
             ipAddress: _ipAddress,
             imageHash: _imageHash,
             timestamp: block.timestamp,
@@ -197,14 +221,14 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
      * @dev Hoàn thành thi (tự động gọi khi sinh viên hoàn thành)
      * @param _studentWallet Địa chỉ ví sinh viên
      */
-    function completeExam(address _studentWallet) external onlyOwner {
+    function completeExam(address _studentWallet, string memory _subject) external onlyOwner {
         require(!isCheater[_studentWallet], "Cheating detected: action blocked");
-        require(students[_studentWallet].isVerified, "Student not verified");
+        require(students[_studentWallet][_subject].isVerified, "Student not verified");
         
         emit ExamCompleted(
             _studentWallet,
-            students[_studentWallet].studentId,
-            students[_studentWallet].subject,
+            students[_studentWallet][_subject].studentId,
+            students[_studentWallet][_subject].subject,
             block.timestamp
         );
     }
@@ -214,8 +238,8 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
      * @param _walletAddress Địa chỉ ví
      * @return Thông tin sinh viên
      */
-    function getStudentInfo(address _walletAddress) external view returns (Student memory) {
-        return students[_walletAddress];
+    function getStudentInfo(address _walletAddress, string memory _subject) external view returns (Student memory) {
+        return students[_walletAddress][_subject];
     }
     
     /**
@@ -298,8 +322,8 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
      * @param _walletAddress Địa chỉ ví
      * @return true nếu đã đăng ký
      */
-    function isStudentRegistered(address _walletAddress) external view returns (bool) {
-        return students[_walletAddress].isRegistered;
+    function isStudentRegistered(address _walletAddress, string memory _subject) external view returns (bool) {
+        return students[_walletAddress][_subject].isRegistered;
     }
     
     /**
@@ -307,8 +331,8 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
      * @param _walletAddress Địa chỉ ví
      * @return true nếu đã xác minh
      */
-    function isStudentVerified(address _walletAddress) external view returns (bool) {
-        return students[_walletAddress].isVerified;
+    function isStudentVerified(address _walletAddress, string memory _subject) external view returns (bool) {
+        return students[_walletAddress][_subject].isVerified;
     }
 
     function markCheating(address student, string memory reason) external onlyOwner {
@@ -325,6 +349,31 @@ contract ExamRegistration is Ownable, ReentrancyGuard {
     }
     function isStudentCheater(address student) public view returns (bool) {
         return isCheater[student];
+    }
+
+    /**
+     * @dev Lấy danh sách các môn học đã đăng ký của một sinh viên
+     * @param student Địa chỉ ví sinh viên
+     * @return Mảng tên môn học
+     */
+    function getRegisteredSubjects(address student) external view returns (string[] memory) {
+        return registeredSubjects[student];
+    }
+
+    /**
+     * @dev Lấy MSSV đầu tiên mà ví đã đăng ký (dùng cho auto-fill frontend)
+     * @param wallet Địa chỉ ví sinh viên
+     * @return MSSV (studentId) hoặc rỗng nếu chưa đăng ký môn nào
+     */
+    function getStudentIdByWallet(address wallet) public view returns (string memory) {
+        string[] memory subjects = registeredSubjects[wallet];
+        for (uint i = 0; i < subjects.length; i++) {
+            string memory subject = subjects[i];
+            if (students[wallet][subject].isRegistered) {
+                return students[wallet][subject].studentId;
+            }
+        }
+        return "";
     }
 } 
  

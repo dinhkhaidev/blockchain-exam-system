@@ -4,6 +4,7 @@ const path = require("path");
 const contracts = [
   "ExamRegistration",
   "ExamCertificateNFT",
+  "StudentIDNFT", // Thêm contract mới
   // Thêm tên contract khác nếu cần
 ];
 

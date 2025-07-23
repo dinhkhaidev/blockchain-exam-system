@@ -20,6 +20,7 @@ app.use('/api/verification', require('./routes/verification'));
 app.use('/api/exam', require('./routes/exam'));
 app.use('/api/nft', require('./routes/nft'));
 app.use('/api/admin', require('./routes/admin'));
+app.use('/api/student', require('./routes/student'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

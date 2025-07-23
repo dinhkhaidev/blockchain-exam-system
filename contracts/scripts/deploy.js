@@ -19,6 +19,14 @@ async function main() {
   const examCertificateNFTAddress = await examCertificateNFT.getAddress();
   console.log("✅ ExamCertificateNFT deployed to:", examCertificateNFTAddress);
 
+  // Deploy StudentIDNFT contract
+  console.log("🆔 Deploying StudentIDNFT contract...");
+  const StudentIDNFT = await hre.ethers.getContractFactory("StudentIDNFT");
+  const studentIDNFT = await StudentIDNFT.deploy();
+  await studentIDNFT.waitForDeployment();
+  const studentIDNFTAddress = await studentIDNFT.getAddress();
+  console.log("✅ StudentIDNFT deployed to:", studentIDNFTAddress);
+
   // Lưu địa chỉ contracts vào file
   const fs = require("fs");
   const path = require("path");
@@ -31,6 +39,7 @@ async function main() {
   const contractsData = {
     ExamRegistration: examRegistrationAddress,
     ExamCertificateNFT: examCertificateNFTAddress,
+    StudentIDNFT: studentIDNFTAddress,
     network: hre.network.name
   };
 
@@ -64,12 +73,23 @@ async function main() {
     } catch (error) {
       console.log("❌ Failed to verify ExamCertificateNFT:", error.message);
     }
+
+    try {
+      await hre.run("verify:verify", {
+        address: studentIDNFTAddress,
+        constructorArguments: [],
+      });
+      console.log("✅ StudentIDNFT verified on Etherscan");
+    } catch (error) {
+      console.log("❌ Failed to verify StudentIDNFT:", error.message);
+    }
   }
 
   console.log("\n🎉 Deployment completed successfully!");
   console.log("📋 Contract addresses:");
   console.log("   ExamRegistration:", examRegistrationAddress);
   console.log("   ExamCertificateNFT:", examCertificateNFTAddress);
+  console.log("   StudentIDNFT:", studentIDNFTAddress);
   console.log("   Network:", hre.network.name);
 }
 

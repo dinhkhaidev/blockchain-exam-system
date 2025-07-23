@@ -1,5 +1,6 @@
 {
-  "ExamRegistration": "0x1bD0fED84C68083d6f544F6C0057790575a2deD1",
-  "ExamCertificateNFT": "0x48E89Bed7E26FabedFefbB72ee0ac766eD211F56",
+  "ExamRegistration": "0x87A30F64570e71bE34bCCDe92f5061281EC2b694",
+  "ExamCertificateNFT": "0x18761d64c6BcfE3AC0400143127E9E4C414C8b7E",
+  "StudentIDNFT": "0xac2C2Ec63967b6183f48abFb112614AC1301015A",
   "network": "localhost"
 }
